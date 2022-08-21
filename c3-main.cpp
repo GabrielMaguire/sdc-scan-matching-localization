@@ -99,6 +99,43 @@ void drawCar(Pose pose, int num, Color color, double alpha, pcl::visualization::
 	renderBox(viewer, box, num, color, alpha);
 }
 
+Eigen::Matrix4d ICP(PointCloudT::Ptr target, PointCloudT::Ptr source, Pose startingPose, int iterations) {
+
+    Eigen::Matrix4d transformation_matrix = Eigen::Matrix4d::Identity();
+
+    // align source with starting pose
+    Eigen::Matrix4d initTransform = transform2D(
+        startingPose.rotation.yaw,
+        startingPose.rotation.pitch,
+        startingPose.rotation.roll,
+        startingPose.position.x,
+        startingPose.position.y,
+        startingPose.position.z
+    );
+    PointCloudT::Ptr transformSource(new PointCloudT); 
+    pcl::transformPointCloud(*source, *transformSource, initTransform);
+
+    pcl::console::TicToc time;
+    time.tic();
+    pcl::IterativeClosestPoint<PointT, PointT> icp;
+    icp.setMaximumIterations(iterations);
+    icp.setInputSource(transformSource);
+    icp.setInputTarget(target);
+    PointCloudT::Ptr cloud_icp(new PointCloudT);  // ICP output point cloud
+    icp.align(*cloud_icp);
+
+    if (icp.hasConverged()) {
+        std::cout << "\nICP has converged, score is " << icp.getFitnessScore() << std::endl;
+        transformation_matrix = icp.getFinalTransformation().cast<double>();
+        transformation_matrix =  transformation_matrix * initTransform;
+        return transformation_matrix;
+    } else {
+        std::cout << "WARNING: ICP did not converge" << endl;
+    }
+
+    return transformation_matrix;
+}
+
 int main(){
 
 	auto client = cc::Client("localhost", 2000);
@@ -208,7 +245,8 @@ int main(){
             vg.filter(*cloudFiltered);
 
 			// TODO: Find pose transform by using ICP or NDT matching
-			//pose = ....
+            Eigen::Matrix4D transform = ICP(mapCloud, cloudFiltered, pose, 50);
+			pose = getPose(transform)
 
 			// TODO: Transform scan so it aligns with ego's actual pose and render that scan
 
